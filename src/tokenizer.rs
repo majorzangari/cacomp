@@ -6,7 +6,6 @@ use std::io;
 use std::io::Read;
 
 use crate::scanner::Scanner;
-// TODO: change up Vec, maybe slow for fifo
 
 pub struct Tokenizer<R: Read> {
     sc: Scanner<R>,
@@ -29,7 +28,7 @@ impl<R: Read> Tokenizer<R> {
         if self.tokens.is_empty() {
             return self.lex_one_token().map_err(TokenizerError::IOError);
         }
-        Ok(self.tokens.pop_front().unwrap())
+        Ok(self.tokens.front().unwrap().clone())
     }
 
     /// Get the next token, consuming it
@@ -47,32 +46,39 @@ impl<R: Read> Tokenizer<R> {
     /// if the end of file was reached. If another error occurs while tokenizing,
     /// does not push a token.
     fn lex_one_token(&mut self) -> io::Result<Token> {
-        let next = self.sc.next()?;
-        // TODO: skip any whitespace, make sure to increment line number
-        if let Some(c) = next {
-            let token_type = match c {
-                '{' => TokenType::OpenBrace,
-                '}' => TokenType::CloseBrace,
-                '(' => TokenType::OpenParen,
-                ')' => TokenType::CloseParen,
-                ';' => TokenType::Semicolon,
-                'a'..='z' | 'A'..='Z' | '_' => {
-                    let str = self.get_identifier_string(c)?;
-                    let keyword = Keyword::from_str(&str);
-                    match keyword {
-                        Some(keyword) => TokenType::Keyword(keyword),
-                        None => TokenType::Identifier(str),
+        loop {
+            let next = self.sc.next()?;
+            return if let Some(c) = next {
+                if c.is_whitespace() {
+                    if c == '\n' {
+                        self.line_number += 1;
                     }
+                    continue;
                 }
-                '0'..='9' => { // TODO: support other integer types
-                    let num = self.lex_number(c)?;
-                    TokenType::IntegerLiteral(num)
-                }
-                _ => todo!(),
-            };
-            Ok(Token::new(token_type, self.line_number))
-        } else {
-            Ok(Token::new(TokenType::EOF, self.line_number))
+                let token_type = match c {
+                    '{' => TokenType::OpenBrace,
+                    '}' => TokenType::CloseBrace,
+                    '(' => TokenType::OpenParen,
+                    ')' => TokenType::CloseParen,
+                    ';' => TokenType::Semicolon,
+                    'a'..='z' | 'A'..='Z' | '_' => {
+                        let str = self.get_identifier_string(c)?;
+                        let keyword = Keyword::from_str(&str);
+                        match keyword {
+                            Some(keyword) => TokenType::Keyword(keyword),
+                            None => TokenType::Identifier(str),
+                        }
+                    }
+                    '0'..='9' => { // TODO: support other integer types
+                        let num = self.lex_number(c)?;
+                        TokenType::IntegerLiteral(num)
+                    }
+                    _ => todo!(),
+                };
+                Ok(Token::new(token_type, self.line_number))
+            } else {
+                Ok(Token::new(TokenType::EOF, self.line_number))
+            }
         }
     }
 
@@ -87,14 +93,14 @@ impl<R: Read> Tokenizer<R> {
 
         loop {
             let next = self.sc.peek()?;
-            if let Some(c) = next {
+            if let Some(c) = next{
                 if c.is_ascii_alphanumeric() || c == '_' {
                     self.sc.advance()?;
                     out.push(c);
+                    continue;
                 }
-            } else {
-                return Ok(out);
             }
+            return Ok(out);
         }
     }
 
@@ -181,5 +187,11 @@ mod tests {
 
     fn create_tokenizer(input: &str) -> Tokenizer<Cursor<&[u8]>> {
         Tokenizer::new(Cursor::new(input.as_bytes()))
+    }
+
+    #[test]
+    fn peek() {
+        let mut tokenizer = create_tokenizer("int main() { return 0; }");
+        assert_eq!(tokenizer.peek().unwrap(), Token::new(TokenType::Keyword(Keyword::Int), 1));
     }
 }
