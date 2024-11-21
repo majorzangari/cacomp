@@ -1,3 +1,6 @@
+#![allow(dead_code)] // TODO: remove later
+#![allow(unused_variables)]
+
 use std::collections::VecDeque;
 use std::io;
 use std::io::Read;
@@ -7,7 +10,7 @@ use crate::scanner::Scanner;
 
 pub struct Tokenizer<R: Read> {
     sc: Scanner<R>,
-    line_number: i32,
+    line_number: u32,
     tokens: VecDeque<Token>,
 }
 
@@ -16,7 +19,7 @@ impl<R: Read> Tokenizer<R> {
     pub fn new(reader: R) -> Tokenizer<R> {
         Tokenizer {
             sc: Scanner::new(reader),
-            line_number: 0,
+            line_number: 1,
             tokens: VecDeque::new(),
         }
     }
@@ -45,30 +48,31 @@ impl<R: Read> Tokenizer<R> {
     /// does not push a token.
     fn lex_one_token(&mut self) -> io::Result<Token> {
         let next = self.sc.next()?;
+        // TODO: skip any whitespace, make sure to increment line number
         if let Some(c) = next {
-            let token = match c {
-                '{' => Token::OpenBrace,
-                '}' => Token::CloseBrace,
-                '(' => Token::OpenParen,
-                ')' => Token::CloseParen,
-                ';' => Token::Semicolon,
+            let token_type = match c {
+                '{' => TokenType::OpenBrace,
+                '}' => TokenType::CloseBrace,
+                '(' => TokenType::OpenParen,
+                ')' => TokenType::CloseParen,
+                ';' => TokenType::Semicolon,
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let str = self.get_identifier_string(c)?;
                     let keyword = Keyword::from_str(&str);
                     match keyword {
-                        Some(keyword) => Token::Keyword(keyword),
-                        None => Token::Identifier(str),
+                        Some(keyword) => TokenType::Keyword(keyword),
+                        None => TokenType::Identifier(str),
                     }
                 }
                 '0'..='9' => { // TODO: support other integer types
                     let num = self.lex_number(c)?;
-                    Token::IntegerLiteral(num)
+                    TokenType::IntegerLiteral(num)
                 }
                 _ => todo!(),
             };
-            Ok(token)
+            Ok(Token::new(token_type, self.line_number))
         } else {
-            Ok(Token::EOF)
+            Ok(Token::new(TokenType::EOF, self.line_number))
         }
     }
 
@@ -82,9 +86,10 @@ impl<R: Read> Tokenizer<R> {
         out.push(c);
 
         loop {
-            let next = self.sc.next()?;
+            let next = self.sc.peek()?;
             if let Some(c) = next {
                 if c.is_ascii_alphanumeric() || c == '_' {
+                    self.sc.advance()?;
                     out.push(c);
                 }
             } else {
@@ -99,9 +104,10 @@ impl<R: Read> Tokenizer<R> {
         int_str.push(c);
 
         loop {
-            let next = self.sc.next()?;
+            let next = self.sc.peek()?;
             if let Some(c) = next {
                 if c.is_ascii_digit() {
+                    self.sc.advance()?;
                     int_str.push(c);
                 }
             } else {
@@ -111,8 +117,23 @@ impl<R: Read> Tokenizer<R> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Token {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token{
+    pub token_type: TokenType,
+    pub line_number: u32,
+}
+
+impl Token {
+    pub fn new(token_type: TokenType, line_number: u32) -> Token {
+        Token {
+            token_type,
+            line_number,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenType {
     OpenBrace,
     CloseBrace,
     OpenParen,
@@ -127,10 +148,10 @@ pub enum Token {
 #[derive(Debug)]
 pub enum TokenizerError {
     IOError(io::Error),
-    InvalidToken(String),
+    InvalidToken(String, u32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Keyword {
     Int,
     Return,
@@ -150,5 +171,15 @@ impl Keyword {
             "return" => Some(Keyword::Return),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use super::*;
+
+    fn create_tokenizer(input: &str) -> Tokenizer<Cursor<&[u8]>> {
+        Tokenizer::new(Cursor::new(input.as_bytes()))
     }
 }
