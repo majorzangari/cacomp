@@ -26,7 +26,7 @@ impl<R: Read> Tokenizer<R> {
     /// Peek at the next token without consuming it
     pub fn peek(&mut self) -> Result<Token, TokenizerError> {
         if self.tokens.is_empty() {
-            return self.lex_one_token().map_err(TokenizerError::IOError);
+            self.lex_one_token().map_err(TokenizerError::IOError)?;
         }
         Ok(self.tokens.front().unwrap().clone())
     }
@@ -35,17 +35,16 @@ impl<R: Read> Tokenizer<R> {
     pub fn next(&mut self) -> Result<Token, TokenizerError> {
         if self.tokens.is_empty() {
             self.lex_one_token().map_err(TokenizerError::IOError)?;
-            return Ok(self.tokens.pop_front().unwrap());
         }
         Ok(self.tokens.pop_front().unwrap())
     }
 
 
-    /// Constructs one token from the input file and pushes it onto the
-    /// token queue. Pushes the next token it can create, or an EOF token
+    /// Constructs one token from the input file, pushes it onto the
+    /// token queue and returns it. Pushes the next token it can create, or an EOF token
     /// if the end of file was reached. If another error occurs while tokenizing,
     /// does not push a token.
-    fn lex_one_token(&mut self) -> io::Result<Token> {
+    fn lex_one_token(&mut self) -> io::Result<()> {
         loop {
             let next = self.sc.next()?;
             return if let Some(c) = next {
@@ -75,9 +74,11 @@ impl<R: Read> Tokenizer<R> {
                     }
                     _ => todo!(),
                 };
-                Ok(Token::new(token_type, self.line_number))
+                self.tokens.push_back(Token::new(token_type, self.line_number));
+                Ok(())
             } else {
-                Ok(Token::new(TokenType::EOF, self.line_number))
+                self.tokens.push_back(Token::new(TokenType::EOF, self.line_number));
+                Ok(())
             }
         }
     }
@@ -115,10 +116,10 @@ impl<R: Read> Tokenizer<R> {
                 if c.is_ascii_digit() {
                     self.sc.advance()?;
                     int_str.push(c);
+                    continue;
                 }
-            } else {
-                return Ok(int_str.parse().unwrap());
             }
+            return int_str.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse integer"));
         }
     }
 }
@@ -193,5 +194,19 @@ mod tests {
     fn peek() {
         let mut tokenizer = create_tokenizer("int main() { return 0; }");
         assert_eq!(tokenizer.peek().unwrap(), Token::new(TokenType::Keyword(Keyword::Int), 1));
+    }
+
+    #[test]
+    fn next() {
+        let mut tokenizer = create_tokenizer("int main() { return 0; }");
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Keyword(Keyword::Int), 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Identifier("main".to_string()), 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::OpenParen, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::CloseParen, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::OpenBrace, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Keyword(Keyword::Return), 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::IntegerLiteral(0), 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Semicolon, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::CloseBrace, 1));
     }
 }
