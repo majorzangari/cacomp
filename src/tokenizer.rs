@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
-use std::fs::File;
 use std::io;
-use std::io::{BufReader, Read};
+use std::io::Read;
 
 use crate::scanner::Scanner;
 // TODO: change up Vec, maybe slow for fifo
@@ -47,14 +46,68 @@ impl<R: Read> Tokenizer<R> {
     fn lex_one_token(&mut self) -> io::Result<Token> {
         let next = self.sc.next()?;
         if let Some(c) = next {
-            match c {
-                _ => {}
-            }
-            todo!();
+            let token = match c {
+                '{' => Token::OpenBrace,
+                '}' => Token::CloseBrace,
+                '(' => Token::OpenParen,
+                ')' => Token::CloseParen,
+                ';' => Token::Semicolon,
+                'a'..='z' | 'A'..='Z' | '_' => {
+                    let str = self.get_identifier_string(c)?;
+                    let keyword = Keyword::from_str(&str);
+                    match keyword {
+                        Some(keyword) => Token::Keyword(keyword),
+                        None => Token::Identifier(str),
+                    }
+                }
+                '0'..='9' => { // TODO: support other integer types
+                    let num = self.lex_number(c)?;
+                    Token::IntegerLiteral(num)
+                }
+                _ => todo!(),
+            };
+            Ok(token)
         } else {
             Ok(Token::EOF)
         }
+    }
 
+    /// Extracts an identifier string starting with the given character.
+    ///
+    /// This function takes an initial character and continues to read characters
+    /// from the scanner until it encounters a non-alphanumeric or
+    /// underscore character. It returns the collected string as an identifier.
+    fn get_identifier_string(&mut self, c: char) -> io::Result<String> {
+        let mut out = String::new();
+        out.push(c);
+
+        loop {
+            let next = self.sc.next()?;
+            if let Some(c) = next {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    out.push(c);
+                }
+            } else {
+                return Ok(out);
+            }
+        }
+    }
+
+    /// Extracts an integer literal starting with the given character.
+    fn lex_number(&mut self, c: char) -> io::Result<i32> {
+        let mut int_str = String::new();
+        int_str.push(c);
+
+        loop {
+            let next = self.sc.next()?;
+            if let Some(c) = next {
+                if c.is_ascii_digit() {
+                    int_str.push(c);
+                }
+            } else {
+                return Ok(int_str.parse().unwrap());
+            }
+        }
     }
 }
 
