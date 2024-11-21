@@ -1,69 +1,64 @@
 use std::collections::VecDeque;
 use std::fs::File;
+use std::io;
 use std::io::{BufReader, Read};
 
-pub struct Tokenizer {
-    br: BufReader<File>,
+use crate::scanner::Scanner;
+// TODO: change up Vec, maybe slow for fifo
+
+pub struct Tokenizer<R: Read> {
+    sc: Scanner<R>,
     line_number: i32,
-    tokens: VecDeque<Token>
+    tokens: VecDeque<Token>,
 }
 
-impl Tokenizer {
+impl<R: Read> Tokenizer<R> {
     /// Create a new Tokenizer from a file
-    pub fn new(file: File) -> Tokenizer {
+    pub fn new(reader: R) -> Tokenizer<R> {
         Tokenizer {
-            br: BufReader::new(file),
+            sc: Scanner::new(reader),
             line_number: 0,
-            tokens: VecDeque::new()
+            tokens: VecDeque::new(),
         }
     }
 
     /// Peek at the next token without consuming it
-    pub fn peek(&mut self) -> Option<&Token> {
+    pub fn peek(&mut self) -> Result<Token, TokenizerError> {
         if self.tokens.is_empty() {
-            self.lex_one_token();
+            return self.lex_one_token().map_err(TokenizerError::IOError);
         }
-        self.tokens.get(0)
+        Ok(self.tokens.pop_front().unwrap())
     }
 
     /// Get the next token, consuming it
-    pub fn next(&mut self) -> Option<Token> {
-        self.peek();
-        self.tokens.pop_front()
+    pub fn next(&mut self) -> Result<Token, TokenizerError> {
+        if self.tokens.is_empty() {
+            self.lex_one_token().map_err(TokenizerError::IOError)?;
+            return Ok(self.tokens.pop_front().unwrap());
+        }
+        Ok(self.tokens.pop_front().unwrap())
     }
 
 
-    pub fn lex_one_token(&mut self) {
-        let mut buffer = [0; 1];
-        if let Ok(_) = self.br.read_exact(&mut buffer) {
-            let c = buffer[0] as char;
+    /// Constructs one token from the input file and pushes it onto the
+    /// token queue. Pushes the next token it can create, or an EOF token
+    /// if the end of file was reached. If another error occurs while tokenizing,
+    /// does not push a token.
+    fn lex_one_token(&mut self) -> io::Result<Token> {
+        let next = self.sc.next()?;
+        if let Some(c) = next {
+            match c {
+                _ => {}
+            }
+            todo!();
         } else {
-            self.tokens.push_back(Token::EOF);
+            Ok(Token::EOF)
         }
+
     }
 }
 
-fn tokenize(input: &str) -> Vec<Token> {
-    let mut tokens= Vec::new();
-
-    for c in input.chars() {
-        while c.is_whitespace() {
-            continue;
-        }
-
-        let token = match c {
-            '{' => Token::OpenBrace,
-            '}' => Token::CloseBrace,
-            '(' => Token::OpenParen,
-            ')' => Token::CloseParen,
-            ';' => Token::Semicolon,
-            _ => todo!(),
-        };
-    }
-
-    tokens
-}
-
+#[derive(Debug, Clone)]
 pub enum Token {
     OpenBrace,
     CloseBrace,
@@ -76,6 +71,13 @@ pub enum Token {
     EOF,
 }
 
+#[derive(Debug)]
+pub enum TokenizerError {
+    IOError(io::Error),
+    InvalidToken(String),
+}
+
+#[derive(Debug, Clone)]
 pub enum Keyword {
     Int,
     Return,
