@@ -23,6 +23,11 @@ impl<R: Read> Tokenizer<R> {
         }
     }
 
+    pub fn has_next(&mut self) -> Result<bool, TokenizerError> {
+        let next_type = self.peek()?.token_type;
+        Ok(next_type != TokenType::EOF)
+    }
+
     /// Peek at the next token without consuming it
     pub fn peek(&mut self) -> Result<Token, TokenizerError> {
         if self.tokens.is_empty() {
@@ -208,5 +213,15 @@ mod tests {
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::IntegerLiteral(0), 1));
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Semicolon, 1));
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::CloseBrace, 1));
+    }
+
+    #[test]
+    fn has_next() {
+        let mut tokenizer = create_tokenizer("int main() { return 0; }");
+        for i in 0..9 {
+            assert!(tokenizer.has_next().unwrap());
+            tokenizer.next().unwrap();
+        }
+        assert!(!tokenizer.has_next().unwrap());
     }
 }
