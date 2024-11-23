@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use std::fmt;
+use std::fmt::Binary;
 use crate::ast::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
 
 // TODO: get better name for this
@@ -38,10 +39,8 @@ impl Generator {
     fn generate_expression_instructions(&mut self, expression: Expression) {
         match expression {
             Expression::UnOp(op, expr) => self.generate_unary_operator_instructions(op, *expr),
-            Expression::BinOp(_, _, _) => todo!(),
-            Expression::Constant(v) => {
-                self.instr.push(format!("mov rax, {v}"));
-            },
+            Expression::BinOp(op, left, right) => self.generate_binary_operator_instructions(op, *left, *right),
+            Expression::Constant(v) => self.instr.push(format!("mov rax, {v}")),
         };
     }
 
@@ -54,6 +53,33 @@ impl Generator {
                 self.instr.push("cmp rax, 0".to_string());
                 self.instr.push("sete al".to_string());
                 self.instr.push("movzx rax, al".to_string());
+            }
+        }
+    }
+
+    fn generate_binary_operator_instructions(&mut self, op: BinaryOperator, left: Expression, right: Expression) {
+        self.generate_expression_instructions(left);
+        self.instr.push("push rax".to_string());
+        self.generate_expression_instructions(right);
+        match op {
+            BinaryOperator::Addition => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("add rax, rcx".to_string())
+            },
+            BinaryOperator::Subtraction => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("sub rcx, rax".to_string());
+                self.instr.push("mov rax, rcx".to_string());
+            },
+            BinaryOperator::Multiplication => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("imul rax, rcx".to_string())
+            },
+            BinaryOperator::Division => {
+                self.instr.push("mov rcx, rax".to_string());
+                self.instr.push("pop rax".to_string());
+                self.instr.push("cqo".to_string());
+                self.instr.push("idiv rcx".to_string());
             }
         }
     }

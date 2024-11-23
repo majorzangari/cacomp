@@ -143,12 +143,12 @@ mod tests {
     use super::*;
     #[test]
     fn print() {
-        println!("{:?}", parse(std::io::Cursor::new("int main() { return 1 + 2 * 3; }")));
+        println!("{:?}", parse(std::io::Cursor::new("int main() { return 2 + (3 * 2) / 3; }")));
     }
 
     #[test]
     fn test() {
-        let parsed = parse(std::io::Cursor::new("int main() { return -~--3; }")).unwrap();
+        let parsed = parse(std::io::Cursor::new("int main() { return 10 / 2; }")).unwrap();
         println!("{}", Generator::new(parsed));
     }
 }
