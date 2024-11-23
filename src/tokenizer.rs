@@ -1,6 +1,3 @@
-#![allow(dead_code)] // TODO: remove later
-#![allow(unused_variables)]
-
 use std::collections::VecDeque;
 use std::io;
 use std::io::Read;
@@ -26,6 +23,11 @@ impl<R: Read> Tokenizer<R> {
     pub fn has_next(&mut self) -> Result<bool, TokenizerError> {
         let next_type = self.peek()?.token_type;
         Ok(next_type != TokenType::EOF)
+    }
+
+    pub fn advance(&mut self) -> Result<(), TokenizerError> {
+        self.next()?;
+        Ok(())
     }
 
     /// Peek at the next token without consuming it
@@ -65,6 +67,12 @@ impl<R: Read> Tokenizer<R> {
                     '(' => TokenType::OpenParen,
                     ')' => TokenType::CloseParen,
                     ';' => TokenType::Semicolon,
+                    '-' => TokenType::Minus,
+                    '~' => TokenType::BitwiseComplement,
+                    '!' => TokenType::Negate,
+                    '+' => TokenType::Plus,
+                    '*' => TokenType::Star,
+                    '/' => TokenType::Divide,
                     'a'..='z' | 'A'..='Z' | '_' => {
                         let str = self.get_identifier_string(c)?;
                         let keyword = Keyword::from_str(&str);
@@ -77,7 +85,7 @@ impl<R: Read> Tokenizer<R> {
                         let num = self.lex_number(c)?;
                         TokenType::IntegerLiteral(num)
                     }
-                    _ => todo!(),
+                    _ => panic!{"{}", c},
                 };
                 self.tokens.push_back(Token::new(token_type, self.line_number));
                 Ok(())
@@ -142,15 +150,28 @@ impl Token {
             line_number,
         }
     }
+
+    pub fn is_unary_operator(&self) -> bool {
+        match self.token_type {
+            TokenType::Minus | TokenType::BitwiseComplement | TokenType::Negate => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
-    OpenBrace,
-    CloseBrace,
-    OpenParen,
-    CloseParen,
-    Semicolon,
+    OpenBrace,          // {
+    CloseBrace,         // }
+    OpenParen,          // (
+    CloseParen,         // )
+    Semicolon,          // ;
+    Minus,              // -
+    BitwiseComplement,  // ~
+    Negate,             // !
+    Plus,               // +
+    Star,               // *
+    Divide,             // /
     Keyword(Keyword),
     Identifier(String),
     IntegerLiteral(i32),
@@ -218,10 +239,37 @@ mod tests {
     #[test]
     fn has_next() {
         let mut tokenizer = create_tokenizer("int main() { return 0; }");
-        for i in 0..9 {
+        for _ in 0..9 {
             assert!(tokenizer.has_next().unwrap());
             tokenizer.next().unwrap();
         }
         assert!(!tokenizer.has_next().unwrap());
+    }
+
+    #[test]
+    fn all_tokens() {
+        let mut tokenizer = create_tokenizer("{}();-~!+*/");
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::OpenBrace, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::CloseBrace, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::OpenParen, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::CloseParen, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Semicolon, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Minus, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::BitwiseComplement, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Negate, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Plus, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Star, 1));
+        assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Divide, 1));
+    }
+
+    #[test]
+    fn print() {
+        let mut tk = create_tokenizer(r#"
+        int main() {
+            return 0;
+        }"#);
+        while tk.has_next().unwrap() {
+            println!("{:?}", tk.next().unwrap());
+        }
     }
 }

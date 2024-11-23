@@ -23,6 +23,16 @@ impl<R: Read> Scanner<R> {
         Ok(())
     }
 
+    /// Advance to the end of the line, do nothing if at end of stream
+    pub fn advance_line(&mut self) -> Result<()> {
+        while let Some(c) = self.next()? {
+            if c == '\n' {
+                return Ok(())
+            }
+        }
+        Ok(())
+    }
+
     /// Peek at the next character without consuming it.
     pub fn peek(&mut self) -> Result<Option<char>> {
         if self.buffer.is_empty() {
@@ -46,8 +56,6 @@ impl<R: Read> Scanner<R> {
         }
         Ok(self.buffer.pop_front())
     }
-
-
 }
 
 #[cfg(test)]
@@ -73,5 +81,18 @@ mod tests {
         assert_eq!(scanner.next().unwrap(), Some('b'));
         assert_eq!(scanner.next().unwrap(), Some('c'));
         assert_eq!(scanner.next().unwrap(), None);
+    }
+
+    #[test]
+    fn advance_line() {
+        let mut scanner = create_scanner("1hello\n2\n3hello");
+        assert_eq!(scanner.next().unwrap(), Some('1'));
+        scanner.advance_line().unwrap();
+        assert_eq!(scanner.next().unwrap(), Some('2'));
+        scanner.advance_line().unwrap();
+        assert_eq!(scanner.next().unwrap(), Some('3'));
+        scanner.advance().unwrap();
+        scanner.advance().unwrap();
+        scanner.advance().unwrap();
     }
 }
