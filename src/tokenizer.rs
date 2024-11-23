@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use std::collections::VecDeque;
 use std::io;
 use std::io::Read;
@@ -152,10 +155,7 @@ impl Token {
     }
 
     pub fn is_unary_operator(&self) -> bool {
-        match self.token_type {
-            TokenType::Minus | TokenType::BitwiseComplement | TokenType::Negate => true,
-            _ => false,
-        }
+        matches!(self.token_type, TokenType::Minus | TokenType::BitwiseComplement | TokenType::Negate)
     }
 }
 

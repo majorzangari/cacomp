@@ -1,5 +1,3 @@
-use std::env;
-
 mod tokenizer;
 mod scanner;
 mod parser;
@@ -8,6 +6,5 @@ mod generator;
 
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    todo!("parse args");
+    todo!();
 }

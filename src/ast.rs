@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 #[derive(Debug)]
 pub struct Program(pub Function);
 
@@ -8,7 +11,7 @@ pub struct Function {
 }
 
 #[derive(Debug)]
-pub struct Statement(pub Expression);
+pub struct Statement(pub Expression); // Always return for now
 
 #[derive(Debug)]
 pub enum Expression {
@@ -19,16 +22,16 @@ pub enum Expression {
 
 #[derive(Debug)]
 pub enum UnaryOperator {
-    MINUS,
-    COMPLEMENT,
-    NEGATIVE,
+    Minus,
+    Complement,
+    Negate,
 }
 
 #[derive(Debug)]
 pub enum BinaryOperator {
-    ADDITION,
-    SUBTRACTION,
-    MULTIPLICATION,
-    DIVISION,
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
 }
 
