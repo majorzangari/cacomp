@@ -1,29 +1,43 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::io::Read;
 use crate::ast::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
 use crate::parser::ParseError::SyntaxError;
 use crate::tokenizer::{Keyword, Token, TokenType, Tokenizer, TokenizerError};
+use std::io::Read;
 
 // Current Grammar:
-// <Program> ::= <Function>
-// <Function> ::= "int" <id> "(" ")" "{" <Statement> "}"
-// <Statement> ::= "return" <Expr> ";"
-// <Expr> ::= <Term> ( ("+" | "-") <Term> )*
-// <Term> ::= <Factor> ( ("*" | "/") <Factor>)
-// <Factor> ::= "(" <Expr> ")" | <UnaryOp> <Factor> | <int>
+// <program> ::= { <function> }
+// <function> ::= "int" <id> "(" ")" "{" { <statement> } "}"
+// <statement> ::= "return" <exp> ";"
+// | <exp> ";"
+// | "int" <id> [ = <exp>] ";"
+// <exp> ::= <id> "=" <exp> | <logical-or-exp>
+// <logical-or-exp> ::= <logical-and-exp> { "||" <logical-and-exp> }
+// <logical-and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+// <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
+// <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
+// <additive-exp> ::= <term> { ("+" | "-") <term> }
+// <term> ::= <factor> { ("*" | "/") <factor> }
+// <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int> | <id>
+// <unary_op> ::= "!" | "~" | "-"
 
 pub fn parse<R: Read> (reader: R) -> Result<Program, ParseError> {
     let mut tk = Tokenizer::new(reader);
     parse_program(&mut tk)
 }
 
+// <program> ::= <function>
 fn parse_program<R: Read> (tk: &mut Tokenizer<R>) -> Result<Program, ParseError> {
-    let function = parse_function(tk)?;
-    Ok(Program(function))
+    let mut functions = Vec::new();
+    while matches!(tk.peek().map_err(ParseError::TokenizerError)?.token_type, TokenType::Keyword(Keyword::Int)) {
+        let function = parse_function(tk)?;
+        functions.push(function);
+    }
+    Ok(Program{functions})
 }
 
+// <function> ::= "int" <id> "(" ")" "{" { <statement> } "}"
 fn parse_function<R: Read> (tk: &mut Tokenizer<R>) -> Result<Function, ParseError> {
     consume(tk, TokenType::Keyword(Keyword::Int))?;
     let id = consume_identifier(tk)?;
@@ -31,34 +45,159 @@ fn parse_function<R: Read> (tk: &mut Tokenizer<R>) -> Result<Function, ParseErro
     consume(tk, TokenType::CloseParen)?;
     consume(tk, TokenType::OpenBrace)?;
 
-    let body = parse_statement(tk)?;
+    let mut body = Vec::new();
+    while tk.peek().map_err(ParseError::TokenizerError)?.token_type != TokenType::CloseBrace {
+        let statement = parse_statement(tk)?;
+        body.push(statement);
+    }
+
     consume(tk, TokenType::CloseBrace)?;
 
-    let out = Function {
-        id,
-        body,
-    };
-    Ok(out)
+    Ok(Function{id, body})
 }
 
-// <Statement> ::= "return" <Expr> ";"
+// <statement> ::= "return" <exp> ";"
+// | <exp> ";"
+// | "int" <id> [ = <exp>] ";"
 fn parse_statement<R: Read> (tk: &mut Tokenizer<R>) -> Result<Statement, ParseError> {
+    let next_type = tk.peek().map_err(ParseError::TokenizerError)?.token_type;
+
+    match next_type {
+        TokenType::Keyword(Keyword::Return) => parse_statement_return(tk),
+        TokenType::Keyword(Keyword::Int) => parse_statement_declaration(tk),
+        _ => parse_statement_pure_expression(tk),
+    }
+}
+
+// "return" <exp> ";"
+fn parse_statement_return<R: Read> (tk: &mut Tokenizer<R>) -> Result<Statement, ParseError> {
     consume(tk, TokenType::Keyword(Keyword::Return))?;
     let expr = parse_expression(tk)?;
     consume(tk, TokenType::Semicolon)?;
-    Ok(Statement(expr))
+    let out = Statement::Return(expr);
+    Ok(out)
 }
 
+// "int" <id> [ = <exp>] ";"
+fn parse_statement_declaration<R: Read> (tk: &mut Tokenizer<R>) -> Result<Statement, ParseError> {
+    consume(tk, TokenType::Keyword(Keyword::Int))?;
+    let id = consume_identifier(tk)?;
 
-// <Expr> ::= <Term> ( ("+" | "-") <Term> )*
+    let next_type = tk.peek().map_err(ParseError::TokenizerError)?.token_type;
+    let expr = match next_type {
+        TokenType::Semicolon => None,
+        _ => {
+            consume(tk, TokenType::Assignment)?;
+            let expr = parse_expression(tk)?;
+            Some(expr)
+        }
+    };
+
+    consume(tk, TokenType::Semicolon)?;
+    let out = Statement::Declaration(id, expr);
+    Ok(out)
+}
+
+// <exp> ";"
+fn parse_statement_pure_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Statement, ParseError> {
+    let expr = parse_expression(tk)?;
+    consume(tk, TokenType::Semicolon)?;
+    let out = Statement::Expression(expr);
+    Ok(out)
+}
+
+// <exp> ::= <id> "=" <exp> | <logical-or-exp>
 fn parse_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let is_assignment = tk.peek_ahead(1).map_err(ParseError::TokenizerError)?.token_type == TokenType::Assignment;
+    match is_assignment {
+        true => parse_expression_assignment(tk),
+        false => parse_logical_or_expression(tk),
+    }
+}
+
+// <id> "=" <exp>
+fn parse_expression_assignment<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let id = consume_identifier(tk)?;
+    consume(tk, TokenType::Assignment)?;
+    let expr = parse_expression(tk)?;
+    Ok(Expression::Assignment(id, Box::new(expr)))
+}
+
+// <logical-or-exp> ::= <logical-and-exp> { "||" <logical-and-exp> }
+fn parse_logical_or_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_logical_and_expr(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while next.token_type == TokenType::LogicalOr {
+        let op = BinaryOperator::LogicalOr;
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_logical_and_expr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <logical-and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+fn parse_logical_and_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_equality_expr(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while next.token_type == TokenType::LogicalAnd {
+        let op = BinaryOperator::LogicalAnd;
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_equality_expr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
+fn parse_equality_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_relational_exr(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while matches!(next.token_type, TokenType::Equal | TokenType::NotEqual) {
+        let op = match next.token_type {
+            TokenType::Equal => BinaryOperator::Equal,
+            TokenType::NotEqual => BinaryOperator::NotEqual,
+            _ => return Err(SyntaxError(next.line_number, format!("Unexpected equality operator: {:?}", next))),
+        };
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_relational_exr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
+fn parse_relational_exr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_additive_expression(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while matches!(next.token_type, TokenType::LessThan | TokenType::GreaterThan | TokenType::LessThanEq | TokenType::GreaterThanEq) {
+        let op = match next.token_type {
+            TokenType::LessThan => BinaryOperator::LessThan,
+            TokenType::GreaterThan => BinaryOperator::GreaterThan,
+            TokenType::LessThanEq => BinaryOperator::LessThanEq,
+            TokenType::GreaterThanEq => BinaryOperator::GreaterThanEq,
+            _ => return Err(SyntaxError(next.line_number, format!("Unexpected relational operator: {:?}", next))),
+        };
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_additive_expression(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <additive-exp> ::= <term> { ("+" | "-") <term> }
+fn parse_additive_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
     let mut out = parse_term(tk)?;
     let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
     while next.token_type == TokenType::Plus || next.token_type == TokenType::Minus {
         let op = match next.token_type {
             TokenType::Plus => BinaryOperator::Addition,
             TokenType::Minus => BinaryOperator::Subtraction,
-            _ => return Err(SyntaxError(next.line_number)),
+            _ => return Err(SyntaxError(next.line_number, format!("Unexpected additive operator, found {:?}", next))),
         };
         tk.advance().map_err(ParseError::TokenizerError)?;
         let next_term = parse_term(tk)?;
@@ -68,7 +207,7 @@ fn parse_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, Parse
     Ok(out)
 }
 
-// <Term> ::= <Factor> ( ("*" | "/") <Factor>)
+// <term> ::= <factor> { ("*" | "/") <factor> }
 fn parse_term<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
     let mut out = parse_factor(tk)?;
     let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
@@ -76,22 +215,23 @@ fn parse_term<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError>
         let op = match next.token_type {
             TokenType::Star => BinaryOperator::Multiplication,
             TokenType::Divide => BinaryOperator::Division,
-            _ => return Err(SyntaxError(next.line_number)),
+            _ => return Err(SyntaxError(next.line_number, format!("Unexpected multiplicative operator, found {:?}", next))),
         };
         tk.advance().map_err(ParseError::TokenizerError)?;
-        let next_factor = parse_term(tk)?;
+        let next_factor = parse_factor(tk)?;
         out = Expression::BinOp(op, Box::new(out), Box::new(next_factor));
         next = tk.peek().map_err(ParseError::TokenizerError)?;
     }
     Ok(out)
 }
 
-// <Factor> ::= "(" <Expr> ")" | <UnaryOp> <Factor> | <int>
+// <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int> | <id>
 fn parse_factor<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
     let next = tk.next().map_err(ParseError::TokenizerError)?;
     match next.token_type {
         TokenType::OpenParen => {
             let out = parse_expression(tk)?;
+            println!("found: {:?}", out);
             consume(tk, TokenType::CloseParen)?;
             Ok(out)
         },
@@ -100,7 +240,7 @@ fn parse_factor<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseErro
                 TokenType::Minus => UnaryOperator::Minus,
                 TokenType::BitwiseComplement => UnaryOperator::Complement,
                 TokenType::Negate => UnaryOperator::Negate,
-                _ => return Err(SyntaxError(next.line_number)),
+                _ => return Err(SyntaxError(next.line_number, format!("Unexpected unary operator, found {:?}", next))),
             };
             let factor = parse_factor(tk)?;
             let out = Expression::UnOp(op, Box::new(factor));
@@ -110,7 +250,11 @@ fn parse_factor<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseErro
             let out = Expression::Constant(v);
             Ok(out)
         },
-        _ => Err(SyntaxError(next.line_number))
+        TokenType::Identifier(s) => {
+            let out = Expression::Variable(s);
+            Ok(out)
+        },
+        _ => Err(SyntaxError(next.line_number, format!("Unexpected factor, found {:?}", next))),
     }
 }
 
@@ -118,7 +262,7 @@ fn parse_factor<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseErro
 fn consume<R: Read> (tk: &mut Tokenizer<R>, token_type: TokenType) -> Result<Token, ParseError> {
     let token = tk.next().map_err(ParseError::TokenizerError)?;
     if token.token_type != token_type {
-        return Err(SyntaxError(token.line_number));
+        return Err(SyntaxError(token.line_number, format!("Expected {:?}, found {:?}", token_type, token)));
     }
     Ok(token)
 }
@@ -128,27 +272,40 @@ fn consume_identifier<R: Read> (tk: &mut Tokenizer<R>) -> Result<String, ParseEr
     if let TokenType::Identifier(s) = token.token_type {
         return Ok(s);
     }
-    Err(SyntaxError(token.line_number))
+    Err(SyntaxError(token.line_number, format!("Expected identifier, found {:?}", token)))
 }
 
 #[derive(Debug)]
 pub enum ParseError {
     TokenizerError(TokenizerError),
-    SyntaxError(u32),
+    SyntaxError(u32, String),
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::generator::Generator;
     use super::*;
+    use crate::generator::Assembly;
     #[test]
     fn print() {
-        println!("{:?}", parse(std::io::Cursor::new("int main() { return 2 + (3 * 2) / 3; }")));
+        println!("{}", parse(std::io::Cursor::new("\
+        int main() {
+            return 1 + 3;
+        }")).unwrap());
     }
 
     #[test]
     fn test() {
-        let parsed = parse(std::io::Cursor::new("int main() { return 10 / 2; }")).unwrap();
-        println!("{}", Generator::new(parsed));
+        let parsed = parse(std::io::Cursor::new("\
+        int main() { 
+            int x = 0;
+            int y = x + 3;
+            return x + 2 && 3 + 2 == 1; 
+        }
+        
+        int other() {
+            int y = 1;
+            return 0;
+        }")).unwrap();
+        println!("{}", Assembly::new(parsed));
     }
 }

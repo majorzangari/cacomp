@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 use std::io::{BufReader, Read, Result};
 
-// TODO: add support for multi-byte characters
-
 pub struct Scanner<R: Read> {
     br: BufReader<R>,
     buffer: VecDeque<char>,

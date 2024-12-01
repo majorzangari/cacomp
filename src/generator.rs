@@ -1,39 +1,94 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::fmt;
-use std::fmt::Binary;
 use crate::ast::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
+use crate::label_generator::LabelGenerator;
+use std::fmt;
+// TODO: figure out non-void non-returning shit because C spec is dumb
 
-// TODO: get better name for this
-#[derive(Debug)]
-pub struct Generator {
+
+pub struct Assembly {
     instr: Vec<String>,
 }
+
+impl Assembly {
+    pub fn new(program: Program) -> Assembly {
+        let gen = Generator::new(program);
+        Assembly { instr: gen.instr }
+    }
+}
+
+impl fmt::Display for Assembly {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for instr in &self.instr {
+            // TODO: a little hacky
+            if !instr.ends_with(":") {
+                write!(f, "\t")?;
+            }
+            writeln!(f, "{}", instr)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Generator {
+    instr: Vec<String>,
+    lg: LabelGenerator,
+}
+
 impl Generator {
-    pub fn new(program: Program) -> Generator {
-        let mut out = Generator { instr: Vec::new() };
+    pub(crate) fn new(program: Program) -> Generator {
+        let mut out = Generator { instr: Vec::new(), lg: LabelGenerator::new() };
         out.generate_instructions(program);
         out
     }
 
     fn generate_instructions(&mut self, program: Program) {
-        self.instr.push("global _start".to_string());
-        self.instr.push("_start:".to_string());
-        self.generate_function_instructions(program.0);
+        // TODO: set up some docker shit for testing
+        // self.instr.push("global main".to_string());
+        for function in program.functions {
+            self.lg.reset_vars();
+            self.generate_function_instructions(function);
+        }
     }
 
     fn generate_function_instructions(&mut self, function: Function) {
-        assert_eq!("main", function.id); // TODO: obviously this is stupid
-        self.generate_statement_instructions(function.body);
+        self.instr.push(format!("{}:", function.id));
+        for statement in function.body {
+            self.instr.push("push rbp".to_string());
+            self.instr.push("mov rbp, rsp".to_string());
+            self.generate_statement_instructions(statement);
+            // TODO: figure out function epilogue for branching programs
+            // for now im gonna say its the return statement's job
+        }
     }
 
-    // Always return for now
+
     fn generate_statement_instructions(&mut self, statement: Statement) {
-        self.generate_expression_instructions(statement.0);
-        self.instr.push("mov rdi, rax".to_string());
-        self.instr.push("mov rax, 60".to_string());
-        self.instr.push("syscall".to_string());
+        match statement {
+            Statement::Return(expr) => {
+                self.generate_expression_instructions(expr);
+                self.instr.push("mov rbp, rsp".to_string());
+                self.instr.push("pop rbp".to_string());
+                self.instr.push("ret".to_string());
+            }
+            Statement::Expression(expr) => {
+                self.generate_expression_instructions(expr);
+            }
+            Statement::Declaration(id, expr) => {
+                let offset = self.lg.generate_or_get_offset(id);
+                match expr {
+                    Some(expr) => {
+                        self.generate_expression_instructions(expr);
+                        self.instr.push(format!("mov DWORD PTR [rbp-{}], rax", offset));
+                    },
+                    None => {
+                        self.instr.push(format!("mov DWORD PTR [rbp-{}], 0", offset));
+                    }
+                }
+            }
+        }
     }
 
     fn generate_expression_instructions(&mut self, expression: Expression) {
@@ -41,6 +96,25 @@ impl Generator {
             Expression::UnOp(op, expr) => self.generate_unary_operator_instructions(op, *expr),
             Expression::BinOp(op, left, right) => self.generate_binary_operator_instructions(op, *left, *right),
             Expression::Constant(v) => self.instr.push(format!("mov rax, {v}")),
+            Expression::Assignment(id, expr) => {
+                // TODO: fix messy borrowing
+                if !self.lg.is_declared(id.clone()) {
+                    // TODO: better error handling
+                    panic!("You didn't declare this");
+                }
+                self.generate_expression_instructions(*expr);
+                let offset = self.lg.generate_or_get_offset(id);
+                self.instr.push(format!("mov DWORD PTR [rbp-{}], eax", offset));
+            },
+            Expression::Variable(id) => {
+                // TODO: fix messy borrowing
+                if !self.lg.is_declared(id.clone()) {
+                    // TODO: better error handling
+                    panic!("You didn't declare this");
+                }
+                let offset = self.lg.generate_or_get_offset(id);
+                self.instr.push(format!("mov rax, DWORD PTR [rbp-{}]", offset));
+            },
         };
     }
 
@@ -81,16 +155,52 @@ impl Generator {
                 self.instr.push("cqo".to_string());
                 self.instr.push("idiv rcx".to_string());
             }
-        }
-    }
-}
+            BinaryOperator::LogicalAnd => {
+                let eval_second = self.lg.generate_label();
+                let done = self.lg.generate_label();
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("cmp rcx, 0".to_string());
+                self.instr.push(format!("jne {}", eval_second));
+                self.instr.push("mov rax, 0".to_string());
+                self.instr.push(format!("jmp {}", done));
 
-impl fmt::Display for Generator {
-    // TODO: add some indentation
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for instr in &self.instr {
-            writeln!(f, "{}", instr)?;
+                self.instr.push(format!("{}:", eval_second));
+                self.instr.push("cmp rax, 0".to_string());
+                self.instr.push("setne al".to_string());
+
+                self.instr.push(format!("{}:", done));
+            },
+            BinaryOperator::LogicalOr => {
+                let eval_second = self.lg.generate_label();
+                let done = self.lg.generate_label();
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("cmp rcx, 0".to_string());
+                self.instr.push(format!("je {}", eval_second));
+                self.instr.push("mov rax, 1".to_string());
+                self.instr.push(format!("jmp {}", done));
+
+                self.instr.push(format!("{}:", eval_second));
+                self.instr.push("cmp rax, 0".to_string());
+                self.instr.push("setne al".to_string());
+                self.instr.push("movzx rax, al".to_string());
+
+                self.instr.push(format!("{}:", done));
+            },
+            // TODO: figure out yucky syntax for these
+            BinaryOperator::Equal | BinaryOperator::NotEqual | BinaryOperator::LessThan | BinaryOperator::GreaterThan | BinaryOperator::LessThanEq | BinaryOperator::GreaterThanEq => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("cmp rcx, rax".to_string());
+                match op {
+                    BinaryOperator::Equal => self.instr.push("sete al".to_string()),
+                    BinaryOperator::NotEqual => self.instr.push("setne al".to_string()),
+                    BinaryOperator::LessThan => self.instr.push("setl al".to_string()),
+                    BinaryOperator::GreaterThan => self.instr.push("setg al".to_string()),
+                    BinaryOperator::LessThanEq => self.instr.push("setle al".to_string()),
+                    BinaryOperator::GreaterThanEq => self.instr.push("setge al".to_string()),
+                    _ => unreachable!(),
+                }
+                self.instr.push("movzx rax, al".to_string());
+            }
         }
-        Ok(())
     }
 }

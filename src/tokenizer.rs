@@ -23,11 +23,13 @@ impl<R: Read> Tokenizer<R> {
         }
     }
 
+    /// Check if there are more tokens to read
     pub fn has_next(&mut self) -> Result<bool, TokenizerError> {
         let next_type = self.peek()?.token_type;
         Ok(next_type != TokenType::EOF)
     }
 
+    /// Advance to the next token
     pub fn advance(&mut self) -> Result<(), TokenizerError> {
         self.next()?;
         Ok(())
@@ -36,15 +38,27 @@ impl<R: Read> Tokenizer<R> {
     /// Peek at the next token without consuming it
     pub fn peek(&mut self) -> Result<Token, TokenizerError> {
         if self.tokens.is_empty() {
-            self.lex_one_token().map_err(TokenizerError::IOError)?;
+            self.lex_one_token()?;
         }
         Ok(self.tokens.front().unwrap().clone())
+    }
+
+    /// Peek at a token a certain distance ahead without consuming it
+    /// tk.peek_ahead(0) is equivalent to tk.peek()
+    pub fn peek_ahead(&mut self, distance: usize) -> Result<Token, TokenizerError> {
+        while self.tokens.len() < distance + 1 {
+            if self.tokens.back().map_or(false, |v| v.token_type == TokenType::EOF) {
+                return Ok(self.tokens.back().unwrap().clone());
+            }
+            self.lex_one_token()?;
+        }
+        Ok(self.tokens.get(distance).unwrap().clone())
     }
 
     /// Get the next token, consuming it
     pub fn next(&mut self) -> Result<Token, TokenizerError> {
         if self.tokens.is_empty() {
-            self.lex_one_token().map_err(TokenizerError::IOError)?;
+            self.lex_one_token()?;
         }
         Ok(self.tokens.pop_front().unwrap())
     }
@@ -54,9 +68,9 @@ impl<R: Read> Tokenizer<R> {
     /// token queue and returns it. Pushes the next token it can create, or an EOF token
     /// if the end of file was reached. If another error occurs while tokenizing,
     /// does not push a token.
-    fn lex_one_token(&mut self) -> io::Result<()> {
+    fn lex_one_token(&mut self) -> Result<(), TokenizerError> {
         loop {
-            let next = self.sc.next()?;
+            let next = self.sc.next().map_err(TokenizerError::IOError)?;
             return if let Some(c) = next {
                 if c.is_whitespace() {
                     if c == '\n' {
@@ -72,10 +86,13 @@ impl<R: Read> Tokenizer<R> {
                     ';' => TokenType::Semicolon,
                     '-' => TokenType::Minus,
                     '~' => TokenType::BitwiseComplement,
-                    '!' => TokenType::Negate,
+                    '!' => self.lex_exclamation_mark()?,
                     '+' => TokenType::Plus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Divide,
+                    '=' => self.lex_equals_sign()?,
+                    '<' => self.lex_less_than()?,
+                    '>' => self.lex_greater_than()?,
                     'a'..='z' | 'A'..='Z' | '_' => {
                         let str = self.get_identifier_string(c)?;
                         let keyword = Keyword::from_str(&str);
@@ -88,6 +105,8 @@ impl<R: Read> Tokenizer<R> {
                         let num = self.lex_number(c)?;
                         TokenType::IntegerLiteral(num)
                     }
+                    '&' => self.lex_and()?,
+                    '|' => self.lex_or()?,
                     _ => panic!{"{}", c},
                 };
                 self.tokens.push_back(Token::new(token_type, self.line_number));
@@ -99,20 +118,92 @@ impl<R: Read> Tokenizer<R> {
         }
     }
 
+    fn lex_exclamation_mark(&mut self) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        let out = match next {
+            Some(c) if c == '=' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::NotEqual
+            },
+            Some(_) | None => TokenType::Negate,
+        };
+        Ok(out)
+    }
+
+    fn lex_equals_sign(&mut self) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        let out = match next {
+            Some(c) if c == '=' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::Equal
+            },
+            Some(_) | None => TokenType::Assignment,
+        };
+        Ok(out)
+    }
+
+    fn lex_less_than(&mut self) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        let out = match next {
+            Some(c) if c == '=' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::LessThanEq
+            },
+            Some(_) | None => TokenType::LessThan,
+        };
+        Ok(out)
+    }
+
+    fn lex_greater_than(&mut self) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        let out = match next {
+            Some(c) if c == '=' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::GreaterThanEq
+            },
+            Some(_) | None => TokenType::GreaterThan,
+        };
+        Ok(out)
+    }
+
+    fn lex_and(&mut self) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        let out = match next {
+            Some(c) if c == '&' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::LogicalAnd
+            },
+            Some(_) | None => TokenType::BitwiseAnd,
+        };
+        Ok(out)
+    }
+
+    fn lex_or(&mut self) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        let out = match next {
+            Some(c) if c == '|' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::LogicalOr
+            },
+            Some(_) | None => TokenType::BitwiseOr,
+        };
+        Ok(out)
+    }
+
     /// Extracts an identifier string starting with the given character.
     ///
     /// This function takes an initial character and continues to read characters
     /// from the scanner until it encounters a non-alphanumeric or
     /// underscore character. It returns the collected string as an identifier.
-    fn get_identifier_string(&mut self, c: char) -> io::Result<String> {
+    fn get_identifier_string(&mut self, c: char) -> Result<String, TokenizerError> {
         let mut out = String::new();
         out.push(c);
 
         loop {
-            let next = self.sc.peek()?;
+            let next = self.sc.peek().map_err(TokenizerError::IOError)?;
             if let Some(c) = next{
                 if c.is_ascii_alphanumeric() || c == '_' {
-                    self.sc.advance()?;
+                    self.sc.advance().map_err(TokenizerError::IOError)?;
                     out.push(c);
                     continue;
                 }
@@ -122,20 +213,21 @@ impl<R: Read> Tokenizer<R> {
     }
 
     /// Extracts an integer literal starting with the given character.
-    fn lex_number(&mut self, c: char) -> io::Result<i32> {
+    fn lex_number(&mut self, c: char) -> Result<i32, TokenizerError> {
         let mut int_str = String::new();
         int_str.push(c);
 
         loop {
-            let next = self.sc.peek()?;
+            let next = self.sc.peek().map_err(TokenizerError::IOError)?;
             if let Some(c) = next {
                 if c.is_ascii_digit() {
-                    self.sc.advance()?;
+                    self.sc.advance().map_err(TokenizerError::IOError)?;
                     int_str.push(c);
                     continue;
                 }
             }
-            return int_str.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse integer"));
+            // TODO: fix this mess
+            return int_str.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to parse integer")).map_err(TokenizerError::IOError);
         }
     }
 }
@@ -172,6 +264,21 @@ pub enum TokenType {
     Plus,               // +
     Star,               // *
     Divide,             // /
+
+
+
+    BitwiseAnd,         // &
+    BitwiseOr,          // |
+    LogicalAnd,         // &&
+    LogicalOr,          // ||
+    Equal,              // ==
+    NotEqual,           // !=
+    LessThan,           // <
+    LessThanEq,         // <=
+    GreaterThan,        // >
+    GreaterThanEq,      // >=
+
+    Assignment,         // = NOTE: currently unused
     Keyword(Keyword),
     Identifier(String),
     IntegerLiteral(i32),
@@ -223,6 +330,13 @@ mod tests {
     }
 
     #[test]
+    fn peek_ahead() {
+        let mut tokenizer = create_tokenizer("int main() { return 0; }");
+        assert_eq!(tokenizer.peek_ahead(0).unwrap(), Token::new(TokenType::Keyword(Keyword::Int), 1));
+        assert_eq!(tokenizer.peek_ahead(100).unwrap(), Token::new(TokenType::EOF, 1));
+    }
+
+    #[test]
     fn next() {
         let mut tokenizer = create_tokenizer("int main() { return 0; }");
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Keyword(Keyword::Int), 1));
@@ -260,16 +374,5 @@ mod tests {
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Plus, 1));
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Star, 1));
         assert_eq!(tokenizer.next().unwrap(), Token::new(TokenType::Divide, 1));
-    }
-
-    #[test]
-    fn print() {
-        let mut tk = create_tokenizer(r#"
-        int main() {
-            return 0;
-        }"#);
-        while tk.has_next().unwrap() {
-            println!("{:?}", tk.next().unwrap());
-        }
     }
 }
