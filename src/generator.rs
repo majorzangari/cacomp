@@ -201,6 +201,11 @@ impl Generator {
                 }
                 self.instr.push("movzx rax, al".to_string());
             }
+            BinaryOperator::ShiftLeft => todo!(),
+            BinaryOperator::ShiftRight => todo!(),
+            BinaryOperator::BitwiseAnd => todo!(),
+            BinaryOperator::BitwiseOr => todo!(),
+            BinaryOperator::BitwiseXor => todo!(),
         }
     }
 }

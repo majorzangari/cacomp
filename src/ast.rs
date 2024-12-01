@@ -63,6 +63,11 @@ pub enum BinaryOperator {
     GreaterThan,
     LessThanEq,
     GreaterThanEq,
+    ShiftLeft,
+    ShiftRight,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
 }
 
 impl BinaryOperator {
@@ -84,6 +89,11 @@ impl BinaryOperator {
             BinaryOperator::GreaterThan => "GreaterThan",
             BinaryOperator::LessThanEq => "LessThanOrEqual",
             BinaryOperator::GreaterThanEq => "GreaterThanOrEqual",
+            BinaryOperator::ShiftLeft => "BitwiseShiftLeft",
+            BinaryOperator::ShiftRight => "BitwiseShiftRight",
+            BinaryOperator::BitwiseAnd => "BitwiseAnd",
+            BinaryOperator::BitwiseOr => "BitwiseOr",
+            BinaryOperator::BitwiseXor => "BitwiseXor",
         }
     }
 }

@@ -14,9 +14,13 @@ use std::io::Read;
 // | "int" <id> [ = <exp>] ";"
 // <exp> ::= <id> "=" <exp> | <logical-or-exp>
 // <logical-or-exp> ::= <logical-and-exp> { "||" <logical-and-exp> }
-// <logical-and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+// <logical-and-exp> ::= <bitwise-xor-exp> { "&&" <bitwise-xor-exp> }
+// <bitwise-xor-exp> ::= <bitwise-or-exp> { "^" <bitwise-or-exp> }
+// <bitwise-or-exp> ::= <bitwise-and-exp> { "|" <bitwise-and-exp> }
+// <bitwise-and-exp> ::= <equality-exp> { "&" <equality-exp> }
 // <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
-// <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
+// <relational-exp> ::= <shift-exp> { ("<" | ">" | "<=" | ">=") <shift-exp> }
+// <shift-exp> ::= <additive-exp> { ("<<" | ">>") <additive-exp> }
 // <additive-exp> ::= <term> { ("+" | "-") <term> }
 // <term> ::= <factor> { ("*" | "/") <factor> }
 // <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int> | <id>
@@ -137,12 +141,54 @@ fn parse_logical_or_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expres
     Ok(out)
 }
 
-// <logical-and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+// <logical-and-exp> ::= <bitwise-xor-exp> { "&&" <bitwise-xor-exp> }
 fn parse_logical_and_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
-    let mut out = parse_equality_expr(tk)?;
+    let mut out = parse_bitwise_xor_expr(tk)?;
     let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
     while next.token_type == TokenType::LogicalAnd {
         let op = BinaryOperator::LogicalAnd;
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_bitwise_xor_expr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <bitwise-xor-exp> ::= <bitwise-or-exp> { "^" <bitwise-or-exp> }
+fn parse_bitwise_xor_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_bitwise_or_expr(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while next.token_type == TokenType::BitwiseXor {
+        let op = BinaryOperator::BitwiseXor;
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_bitwise_or_expr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <bitwise-or-exp> ::= <bitwise-and-exp> { "|" <bitwise-and-exp> }
+fn parse_bitwise_or_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_bitwise_and_expr(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while next.token_type == TokenType::BitwiseOr {
+        let op = BinaryOperator::BitwiseOr;
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_bitwise_and_expr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+// <bitwise-and-exp> ::= <equality-exp> { "&" <equality-exp> }
+fn parse_bitwise_and_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_equality_expr(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while next.token_type == TokenType::BitwiseAnd {
+        let op = BinaryOperator::BitwiseAnd;
         tk.advance().map_err(ParseError::TokenizerError)?;
         let next_term = parse_equality_expr(tk)?;
         out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
@@ -153,7 +199,7 @@ fn parse_logical_and_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression,
 
 // <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
 fn parse_equality_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
-    let mut out = parse_relational_exr(tk)?;
+    let mut out = parse_relational_expr(tk)?;
     let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
     while matches!(next.token_type, TokenType::Equal | TokenType::NotEqual) {
         let op = match next.token_type {
@@ -162,7 +208,7 @@ fn parse_equality_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, Pa
             _ => return Err(SyntaxError(next.line_number, format!("Unexpected equality operator: {:?}", next))),
         };
         tk.advance().map_err(ParseError::TokenizerError)?;
-        let next_term = parse_relational_exr(tk)?;
+        let next_term = parse_relational_expr(tk)?;
         out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
         next = tk.peek().map_err(ParseError::TokenizerError)?;
     }
@@ -170,8 +216,8 @@ fn parse_equality_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, Pa
 }
 
 // <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
-fn parse_relational_exr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
-    let mut out = parse_additive_expression(tk)?;
+fn parse_relational_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_shift_expr(tk)?;
     let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
     while matches!(next.token_type, TokenType::LessThan | TokenType::GreaterThan | TokenType::LessThanEq | TokenType::GreaterThanEq) {
         let op = match next.token_type {
@@ -179,6 +225,23 @@ fn parse_relational_exr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, P
             TokenType::GreaterThan => BinaryOperator::GreaterThan,
             TokenType::LessThanEq => BinaryOperator::LessThanEq,
             TokenType::GreaterThanEq => BinaryOperator::GreaterThanEq,
+            _ => return Err(SyntaxError(next.line_number, format!("Unexpected relational operator: {:?}", next))),
+        };
+        tk.advance().map_err(ParseError::TokenizerError)?;
+        let next_term = parse_shift_expr(tk)?;
+        out = Expression::BinOp(op, Box::new(out), Box::new(next_term));
+        next = tk.peek().map_err(ParseError::TokenizerError)?;
+    }
+    Ok(out)
+}
+
+fn parse_shift_expr<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
+    let mut out = parse_additive_expression(tk)?;
+    let mut next = tk.peek().map_err(ParseError::TokenizerError)?;
+    while matches!(next.token_type, TokenType::BitwiseShiftRight | TokenType::BitwiseShiftLeft) {
+        let op = match next.token_type {
+            TokenType::BitwiseShiftRight => BinaryOperator::ShiftRight,
+            TokenType::BitwiseShiftLeft => BinaryOperator::ShiftLeft,
             _ => return Err(SyntaxError(next.line_number, format!("Unexpected relational operator: {:?}", next))),
         };
         tk.advance().map_err(ParseError::TokenizerError)?;

@@ -90,6 +90,7 @@ impl<R: Read> Tokenizer<R> {
                     '+' => TokenType::Plus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Divide,
+                    '^' => TokenType::BitwiseXor,
                     '=' => self.lex_equals_sign()?,
                     '<' => self.lex_less_than()?,
                     '>' => self.lex_greater_than()?,
@@ -149,6 +150,10 @@ impl<R: Read> Tokenizer<R> {
                 self.sc.advance().map_err(TokenizerError::IOError)?;
                 TokenType::LessThanEq
             },
+            Some(c) if c == '<' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::BitwiseShiftLeft
+            }
             Some(_) | None => TokenType::LessThan,
         };
         Ok(out)
@@ -161,6 +166,10 @@ impl<R: Read> Tokenizer<R> {
                 self.sc.advance().map_err(TokenizerError::IOError)?;
                 TokenType::GreaterThanEq
             },
+            Some(c) if c == '>' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
+                TokenType::BitwiseShiftRight
+            }
             Some(_) | None => TokenType::GreaterThan,
         };
         Ok(out)
@@ -264,11 +273,12 @@ pub enum TokenType {
     Plus,               // +
     Star,               // *
     Divide,             // /
-
-
-
     BitwiseAnd,         // &
     BitwiseOr,          // |
+    BitwiseShiftLeft,   // <<
+    BitwiseShiftRight,  // >>
+    BitwiseXor,         // ^
+
     LogicalAnd,         // &&
     LogicalOr,          // ||
     Equal,              // ==
