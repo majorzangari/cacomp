@@ -106,6 +106,9 @@ impl Generator {
                 let offset = self.lg.generate_or_get_offset(id);
                 self.instr.push(format!("mov DWORD PTR [rbp-{}], eax", offset));
             },
+            Expression::CompoundAssignment(id, op, expr) => {
+                todo!();
+            }
             Expression::Variable(id) => {
                 // TODO: fix messy borrowing
                 if !self.lg.is_declared(id.clone()) {

@@ -26,6 +26,7 @@ pub enum Statement {
 #[derive(Debug)]
 pub enum Expression {
     Assignment(String, Box<Expression>),
+    CompoundAssignment(String, CompoundAssignment, Box<Expression>),
     Variable(String),
     UnOp(UnaryOperator, Box<Expression>),
     BinOp(BinaryOperator, Box<Expression>, Box<Expression>),
@@ -98,6 +99,37 @@ impl BinaryOperator {
     }
 }
 
+#[derive(Debug)]
+pub enum CompoundAssignment {
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Modulus,
+    BitwiseXor,
+    BitwiseOr,
+    BitwiseAnd,
+    ShiftLeft,
+    ShiftRight,
+}
+
+impl CompoundAssignment {
+    pub fn str_rep(&self) -> &str {
+        match self {
+            CompoundAssignment::Addition => "Addition",
+            CompoundAssignment::Subtraction => "Subtraction",
+            CompoundAssignment::Multiplication => "Multiplication",
+            CompoundAssignment::Division => "Division",
+            CompoundAssignment::Modulus => "Modulus",
+            CompoundAssignment::BitwiseXor => "Xor",
+            CompoundAssignment::BitwiseOr => "Or",
+            CompoundAssignment::BitwiseAnd => "And",
+            CompoundAssignment::ShiftLeft => "ShiftLeft",
+            CompoundAssignment::ShiftRight => "ShiftRight",
+        }
+    }
+}
+
 /// Trait for types that can be displayed with indentation
 trait IndentDisplay {
     fn indent_display(&self, tabs: usize, f: &mut Formatter<'_>) -> fmt::Result;
@@ -150,6 +182,10 @@ impl IndentDisplay for Expression {
         match self {
             Expression::Assignment(id, expr) => {
                 write!(f, "{}Assignment \"{}\"\n", " ".repeat(tabs), id)?;
+                expr.indent_display(tabs + 1, f)?;
+            }
+            Expression::CompoundAssignment(id, op, expr) => {
+                write!(f, "{}{} CompoundAssignment \"{}\"", " ".repeat(tabs), op.str_rep(), id)?;
                 expr.indent_display(tabs + 1, f)?;
             }
             Expression::Variable(id) => {
