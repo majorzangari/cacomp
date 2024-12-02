@@ -134,6 +134,8 @@ impl Generator {
     fn generate_binary_operator_instructions(&mut self, op: BinaryOperator, left: Expression, right: Expression) {
         self.generate_expression_instructions(left);
         self.instr.push("push rax".to_string());
+        // first is pop
+        // second is rax
         self.generate_expression_instructions(right);
         match op {
             BinaryOperator::Addition => {
@@ -150,7 +152,7 @@ impl Generator {
                 self.instr.push("imul rax, rcx".to_string())
             },
             BinaryOperator::Division => {
-                self.instr.push("mov rcx, rax".to_string());
+                self.instr.push("mov rax, rcx".to_string());
                 self.instr.push("pop rax".to_string());
                 self.instr.push("cqo".to_string());
                 self.instr.push("idiv rcx".to_string());
@@ -201,11 +203,28 @@ impl Generator {
                 }
                 self.instr.push("movzx rax, al".to_string());
             }
-            BinaryOperator::ShiftLeft => todo!(),
-            BinaryOperator::ShiftRight => todo!(),
-            BinaryOperator::BitwiseAnd => todo!(),
-            BinaryOperator::BitwiseOr => todo!(),
-            BinaryOperator::BitwiseXor => todo!(),
+            BinaryOperator::ShiftLeft | BinaryOperator::ShiftRight => {
+                self.instr.push("mov rax, rcx".to_string());
+                self.instr.push("pop rax".to_string());
+                let instruction = match op {
+                    BinaryOperator::ShiftLeft => "shl",
+                    BinaryOperator::ShiftRight => "shr",
+                    _ => unreachable!(),
+                };
+                self.instr.push(format!("{} rax, rcx", instruction));
+            },
+            BinaryOperator::BitwiseAnd => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("and rax, rcx".to_string());
+            },
+            BinaryOperator::BitwiseOr => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("or rax, rcx".to_string());
+            },
+            BinaryOperator::BitwiseXor => {
+                self.instr.push("pop rcx".to_string());
+                self.instr.push("xor rax, rcx".to_string());
+            },
         }
     }
 }

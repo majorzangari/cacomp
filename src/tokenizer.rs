@@ -84,13 +84,13 @@ impl<R: Read> Tokenizer<R> {
                     '(' => TokenType::OpenParen,
                     ')' => TokenType::CloseParen,
                     ';' => TokenType::Semicolon,
-                    '-' => TokenType::Minus,
+                    '-' => self.if_equals_next_or(TokenType::MinusEquals, TokenType::Minus)?,
                     '~' => TokenType::BitwiseComplement,
                     '!' => self.lex_exclamation_mark()?,
-                    '+' => TokenType::Plus,
-                    '*' => TokenType::Star,
-                    '/' => TokenType::Divide,
-                    '^' => TokenType::BitwiseXor,
+                    '+' => self.if_equals_next_or(TokenType::PlusEquals, TokenType::Plus)?,
+                    '*' => self.if_equals_next_or(TokenType::StarEquals, TokenType::Star)?,
+                    '/' => self.if_equals_next_or(TokenType::SlashEquals, TokenType::Divide)?,
+                    '^' => self.if_equals_next_or(TokenType::XorEquals, TokenType::BitwiseXor)?,
                     '=' => self.lex_equals_sign()?,
                     '<' => self.lex_less_than()?,
                     '>' => self.lex_greater_than()?,
@@ -152,7 +152,7 @@ impl<R: Read> Tokenizer<R> {
             },
             Some(c) if c == '<' => {
                 self.sc.advance().map_err(TokenizerError::IOError)?;
-                TokenType::BitwiseShiftLeft
+                self.if_equals_next_or(TokenType::LeftShiftEquals, TokenType::BitwiseShiftLeft)?
             }
             Some(_) | None => TokenType::LessThan,
         };
@@ -168,9 +168,9 @@ impl<R: Read> Tokenizer<R> {
             },
             Some(c) if c == '>' => {
                 self.sc.advance().map_err(TokenizerError::IOError)?;
-                TokenType::BitwiseShiftRight
+                self.if_equals_next_or(TokenType::RightShiftEquals, TokenType::BitwiseShiftRight)?
             }
-            Some(_) | None => TokenType::GreaterThan,
+            _ => TokenType::GreaterThan,
         };
         Ok(out)
     }
@@ -197,6 +197,16 @@ impl<R: Read> Tokenizer<R> {
             Some(_) | None => TokenType::BitwiseOr,
         };
         Ok(out)
+    }
+
+    fn if_equals_next_or(&mut self, val_true: TokenType, val_false: TokenType) -> Result<TokenType, TokenizerError> {
+        let next = self.sc.peek().map_err(TokenizerError::IOError)?;
+        match next {
+            Some(c) if c == '=' => {
+                Ok(val_true)
+            },
+            _ => Ok(val_false),
+        }
     }
 
     /// Extracts an identifier string starting with the given character.
@@ -288,6 +298,17 @@ pub enum TokenType {
     GreaterThan,        // >
     GreaterThanEq,      // >=
 
+    PlusEquals,         // +=
+    MinusEquals,        // -=
+    SlashEquals,        // /=
+    StarEquals,         // *=
+    PercentEquals,      // %=
+    LeftShiftEquals,    // <<=
+    RightShiftEquals,   // >>=
+    AndEquals,          // &=
+    OrEquals,           // |=
+    XorEquals,          // ^=
+
     Assignment,         // = NOTE: currently unused
     Keyword(Keyword),
     Identifier(String),
@@ -305,6 +326,7 @@ pub enum TokenizerError {
 pub enum Keyword {
     Int,
     Return,
+    If,
 }
 
 impl Keyword {
@@ -312,6 +334,7 @@ impl Keyword {
         match self {
             Keyword::Int => "int",
             Keyword::Return => "return",
+            Keyword::If => "if",
         }
     }
 
@@ -319,6 +342,7 @@ impl Keyword {
         match input {
             "int" => Some(Keyword::Int),
             "return" => Some(Keyword::Return),
+            "if" => Some(Keyword::If),
             _ => None,
         }
     }
