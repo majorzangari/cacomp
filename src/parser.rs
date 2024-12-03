@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use crate::ast::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
+use crate::ast::{BinaryOperator, CompoundAssignment, Expression, Function, Program, Statement, UnaryOperator};
 use crate::parser::ParseError::SyntaxError;
 use crate::tokenizer::{Keyword, Token, TokenType, Tokenizer, TokenizerError};
 use std::io::Read;
@@ -112,7 +112,7 @@ fn parse_statement_pure_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<St
 
 // <exp> ::= <id> "=" <exp> | <logical-or-exp>
 fn parse_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
-    let is_assignment = tk.peek_ahead(1).map_err(ParseError::TokenizerError)?.token_type == TokenType::Assignment;
+    let is_assignment = tk.peek_ahead(1).map_err(ParseError::TokenizerError)?.is_assignment_operator();
     match is_assignment {
         true => parse_expression_assignment(tk),
         false => parse_logical_or_expression(tk),
@@ -122,9 +122,22 @@ fn parse_expression<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, Parse
 // <id> "=" <exp>
 fn parse_expression_assignment<R: Read> (tk: &mut Tokenizer<R>) -> Result<Expression, ParseError> {
     let id = consume_identifier(tk)?;
-    consume(tk, TokenType::Assignment)?;
+    let next = tk.next().map_err(ParseError::TokenizerError)?;
     let expr = parse_expression(tk)?;
-    Ok(Expression::Assignment(id, Box::new(expr)))
+    let out = match next.token_type {
+        TokenType::Assignment => Ok(Expression::Assignment(id, Box::new(expr))),
+        TokenType::PlusEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::Addition, Box::new(expr))),
+        TokenType::MinusEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::Subtraction, Box::new(expr))),
+        TokenType::StarEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::Multiplication, Box::new(expr))),
+        TokenType::SlashEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::Division, Box::new(expr))),
+        TokenType::XorEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::BitwiseXor, Box::new(expr))),
+        TokenType::OrEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::BitwiseOr, Box::new(expr))),
+        TokenType::AndEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::BitwiseAnd, Box::new(expr))),
+        TokenType::LeftShiftEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::ShiftLeft, Box::new(expr))),
+        TokenType::RightShiftEquals => Ok(Expression::CompoundAssignment(id, CompoundAssignment::ShiftRight, Box::new(expr))),
+        _ => Err(SyntaxError(next.line_number, format!("Unexpected assignment operator \"{:?}\"", next.token_type)))
+    };
+    out
 }
 
 // <logical-or-exp> ::= <logical-and-exp> { "||" <logical-and-exp> }
@@ -352,6 +365,8 @@ mod tests {
     fn print() {
         println!("{}", parse(std::io::Cursor::new("\
         int main() {
+            int x = 3;
+            x += 4;
             return 1 + 3;
         }")).unwrap());
     }

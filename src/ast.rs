@@ -159,13 +159,10 @@ impl IndentDisplay for Statement {
     fn indent_display(&self, tabs: usize, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Statement::Return(expr) => {
-                write!(f, "{}Return:", " ".repeat(tabs))?;
+                write!(f, "{}Return:\n", " ".repeat(tabs))?;
                 expr.indent_display(tabs + 1, f)?;
             }
-            Statement::Expression(expr) => {
-                write!(f, "{}Expression:", " ".repeat(tabs))?;
-                expr.indent_display(tabs + 1, f)?;
-            }
+            Statement::Expression(expr) => expr.indent_display(tabs, f)?,
             Statement::Declaration(id, expr) => {
                 write!(f, "{}Declaration \"{}\":", " ".repeat(tabs), id)?;
                 if let Some(expression) = expr {
@@ -185,7 +182,7 @@ impl IndentDisplay for Expression {
                 expr.indent_display(tabs + 1, f)?;
             }
             Expression::CompoundAssignment(id, op, expr) => {
-                write!(f, "{}{} CompoundAssignment \"{}\"", " ".repeat(tabs), op.str_rep(), id)?;
+                write!(f, "{}{} Assignment \"{}\"\n", " ".repeat(tabs), op.str_rep(), id)?;
                 expr.indent_display(tabs + 1, f)?;
             }
             Expression::Variable(id) => {

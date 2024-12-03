@@ -203,6 +203,7 @@ impl<R: Read> Tokenizer<R> {
         let next = self.sc.peek().map_err(TokenizerError::IOError)?;
         match next {
             Some(c) if c == '=' => {
+                self.sc.advance().map_err(TokenizerError::IOError)?;
                 Ok(val_true)
             },
             _ => Ok(val_false),
@@ -267,6 +268,10 @@ impl Token {
 
     pub fn is_unary_operator(&self) -> bool {
         matches!(self.token_type, TokenType::Minus | TokenType::BitwiseComplement | TokenType::Negate)
+    }
+
+    pub fn is_assignment_operator(&self) -> bool {
+        matches!(self.token_type, TokenType::Assignment | TokenType::PlusEquals | TokenType::MinusEquals | TokenType::StarEquals | TokenType::SlashEquals | TokenType::PercentEquals | TokenType::XorEquals | TokenType::OrEquals | TokenType::AndEquals | TokenType::LeftShiftEquals | TokenType::RightShiftEquals)
     }
 }
 
