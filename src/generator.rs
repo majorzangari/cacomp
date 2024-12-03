@@ -3,7 +3,9 @@
 
 use crate::ast::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
 use crate::label_generator::LabelGenerator;
-use std::fmt;
+use std::{fmt, io};
+use std::fs::File;
+use std::io::Write;
 // TODO: figure out non-void non-returning shit because C spec is dumb
 
 
@@ -15,6 +17,12 @@ impl Assembly {
     pub fn new(program: Program) -> Assembly {
         let gen = Generator::new(program);
         Assembly { instr: gen.instr }
+    }
+
+    pub fn write_to_file(&self, filename: &str) -> io::Result<()> {
+        let mut file = File::create(filename)?;
+        write!(file, "{}", self)?;
+        Ok(())
     }
 }
 
@@ -46,7 +54,13 @@ impl Generator {
 
     fn generate_instructions(&mut self, program: Program) {
         // TODO: set up some docker shit for testing
-        // self.instr.push("global main".to_string());
+        self.instr.push("section .text".to_string());
+        self.instr.push("global _start".to_string());
+        self.instr.push("_start:".to_string());
+        self.instr.push("call main".to_string());
+        self.instr.push("mov rdi, rax".to_string());
+        self.instr.push("mov rax, 60".to_string());
+        self.instr.push("syscall".to_string());
         for function in program.functions {
             self.lg.reset_vars();
             self.generate_function_instructions(function);
@@ -55,13 +69,15 @@ impl Generator {
 
     fn generate_function_instructions(&mut self, function: Function) {
         self.instr.push(format!("{}:", function.id));
+        self.instr.push("push rbp".to_string());
+        self.instr.push("mov rbp, rsp".to_string());
+
         for statement in function.body {
-            self.instr.push("push rbp".to_string());
-            self.instr.push("mov rbp, rsp".to_string());
             self.generate_statement_instructions(statement);
-            // TODO: figure out function epilogue for branching programs
-            // for now im gonna say its the return statement's job
         }
+
+        // TODO: figure out function epilogue for branching programs
+        // for now im gonna say its the return statement's job
     }
 
 
@@ -81,10 +97,10 @@ impl Generator {
                 match expr {
                     Some(expr) => {
                         self.generate_expression_instructions(expr);
-                        self.instr.push(format!("mov DWORD PTR [rbp-{}], rax", offset));
+                        self.instr.push(format!("mov dword [rbp-{}], eax", offset));
                     },
                     None => {
-                        self.instr.push(format!("mov DWORD PTR [rbp-{}], 0", offset));
+                        self.instr.push(format!("mov dword [rbp-{}], 0", offset));
                     }
                 }
             }
@@ -104,7 +120,7 @@ impl Generator {
                 }
                 self.generate_expression_instructions(*expr);
                 let offset = self.lg.generate_or_get_offset(id);
-                self.instr.push(format!("mov DWORD PTR [rbp-{}], eax", offset));
+                self.instr.push(format!("mov dword [rbp-{}], eax", offset));
             },
             Expression::CompoundAssignment(id, op, expr) => {
                 todo!();
@@ -116,7 +132,7 @@ impl Generator {
                     panic!("You didn't declare this");
                 }
                 let offset = self.lg.generate_or_get_offset(id);
-                self.instr.push(format!("mov rax, DWORD PTR [rbp-{}]", offset));
+                self.instr.push(format!("mov eax, dword [rbp-{}]", offset));
             },
         };
     }

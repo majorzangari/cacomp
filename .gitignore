@@ -1,1 +1,4 @@
 /target
+main.asm
+main.o
+out

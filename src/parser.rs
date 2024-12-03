@@ -372,17 +372,26 @@ mod tests {
     }
 
     #[test]
+    fn file() {
+        let parsed = parse(std::io::Cursor::new("\
+            int main() {
+                int x = 3;
+                int y = x;
+                return x;
+            }")).unwrap();
+        let asm = Assembly::new(parsed);
+        asm.write_to_file("main.asm").unwrap();
+    }
+
+    #[test]
     fn test() {
         let parsed = parse(std::io::Cursor::new("\
         int main() { 
-            int x = 0;
-            int y = x + 3;
-            return x + 2 && 3 + 2 == 1; 
-        }
-        
-        int other() {
-            int y = 1;
-            return 0;
+            int x = 3;
+            x = x + 4;
+            int y = x + 5;
+            y = x + y;
+            return y;
         }")).unwrap();
         println!("{}", Assembly::new(parsed));
     }
