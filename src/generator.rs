@@ -85,7 +85,7 @@ impl Generator {
         match statement {
             Statement::Return(expr) => {
                 self.generate_expression_instructions(expr);
-                self.instr.push("mov rbp, rsp".to_string());
+                self.instr.push("mov rsp, rbp".to_string());
                 self.instr.push("pop rbp".to_string());
                 self.instr.push("ret".to_string());
             }
@@ -103,6 +103,7 @@ impl Generator {
                         self.instr.push(format!("mov dword [rbp-{}], 0", offset));
                     }
                 }
+                self.instr.push("sub rsp, 4".to_string()); // TODO: can definitely be optimized p easily
             }
         }
     }
@@ -120,7 +121,7 @@ impl Generator {
                 }
                 self.generate_expression_instructions(*expr);
                 let offset = self.lg.generate_or_get_offset(id);
-                self.instr.push(format!("mov dword [rbp-{}], eax", offset));
+                self.instr.push(format!("mov eax, dword [rbp-{}]", offset));
             },
             Expression::CompoundAssignment(id, op, expr) => {
                 todo!();
